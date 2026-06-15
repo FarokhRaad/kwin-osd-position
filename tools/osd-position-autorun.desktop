@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OSD position patch check (KWin)
+Comment=After a KWin upgrade, offers to rebuild the patched KWin that lowers the OSD
+Exec=__EXEC__
+Icon=audio-volume-high
+Terminal=false
+NoDisplay=false
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=2
