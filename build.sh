@@ -43,6 +43,47 @@ fi
 
 echo ">> Patched kwin build — default OSD height = ${OSD_FRAC} of screen (live-editable via ${POS_FILE})"
 
+# --- ccache: make every rebuild fast ---------------------------------------
+# KWin is hundreds of C++ translation units. Without caching, every rebuild —
+# after a kwin upgrade, or just to change the default fraction — recompiles all
+# of them from scratch. ccache stores compiled objects keyed by the preprocessed
+# source, so a rebuild only recompiles files that actually changed; everything
+# unchanged is a near-instant cache hit. First build is unchanged in speed (cold
+# cache); subsequent ones are dramatically faster.
+#
+# We enable it WITHOUT editing /etc/makepkg.conf: ccache ships compiler shims in
+# /usr/lib/ccache/bin, and putting that first in PATH routes makepkg's gcc/g++
+# through ccache. Set USE_CCACHE=0 to skip all of this.
+USE_CCACHE="${USE_CCACHE:-1}"
+if [[ "$USE_CCACHE" != "0" ]]; then
+  if ! command -v ccache >/dev/null 2>&1; then
+    echo ">> ccache not found — installing it once (speeds up every future rebuild)..."
+    sudo pacman -S --needed --noconfirm ccache || {
+      echo "!! Could not install ccache; continuing without it." >&2
+      USE_CCACHE=0
+    }
+  fi
+fi
+if [[ "$USE_CCACHE" != "0" ]]; then
+  CCACHE_BIN_DIR=""
+  for d in /usr/lib/ccache/bin /usr/lib/ccache; do
+    if [[ -x "$d/gcc" || -x "$d/g++" || -x "$d/cc" ]]; then CCACHE_BIN_DIR="$d"; break; fi
+  done
+  if [[ -n "$CCACHE_BIN_DIR" ]]; then
+    export PATH="$CCACHE_BIN_DIR:$PATH"
+    export CCACHE_DIR="${CCACHE_DIR:-$HOME/.cache/ccache}"
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-10G}"   # room for a couple of full kwin builds
+    # Tolerate the things that differ between two otherwise-identical TUs across
+    # kwin versions (timestamps, __FILE__, etc.) so they still count as hits.
+    export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-time_macros,include_file_mtime,include_file_ctime,file_macro,pch_defines,system_headers,locale}"
+    mkdir -p "$CCACHE_DIR"
+    echo ">> ccache enabled (dir=$CCACHE_DIR, max=$CCACHE_MAXSIZE) via $CCACHE_BIN_DIR"
+  else
+    echo "!! ccache present but compiler shims not found; building without it." >&2
+    USE_CCACHE=0
+  fi
+fi
+
 # Fresh build dir each run so we always patch a clean tree.
 rm -rf "$BUILD"
 mkdir -p "$BUILD"
@@ -64,6 +105,15 @@ SRC=$(echo "$BUILD"/src/kwin-*/src/placement.cpp)
 if [[ ! -f "$SRC" ]]; then
   echo "Could not find placement.cpp (looked for $SRC)." >&2
   exit 1
+fi
+
+# Point ccache at the extracted source root so the kwin VERSION embedded in the
+# path (kwin-6.x.y) is stripped before hashing. Without this, every file would
+# look "new" after an upgrade purely because its path changed, forcing a full
+# recompile. With it, files unchanged between two releases hit the cache, so an
+# upgrade rebuilds only the handful of files that actually changed.
+if [[ "$USE_CCACHE" != "0" ]]; then
+  export CCACHE_BASEDIR="${SRC%/src/placement.cpp}"
 fi
 
 # 2a) Build the replacement C++ block. The build-time default fraction
@@ -124,8 +174,13 @@ fi
 echo ">> Patched placeOnScreenDisplay() — reads ~/.config/kwin-osd-position (default ${OSD_FRAC})"
 
 # 3) build the already-extracted tree (no re-extract, no re-prepare) and install
-echo ">> Building (this takes a while) and installing..."
+echo ">> Building and installing (first build is slow; later rebuilds reuse the ccache)..."
+[[ "$USE_CCACHE" != "0" ]] && ccache -z >/dev/null 2>&1 || true   # reset counters to measure THIS build
 makepkg --noextract --syncdeps --install --noconfirm --skippgpcheck
+if [[ "$USE_CCACHE" != "0" ]]; then
+  echo ">> ccache results for this build (high hit rate = fast rebuild):"
+  ccache -s 2>/dev/null | grep -Ei 'hit|miss|cache size' || ccache -s 2>/dev/null || true
+fi
 
 # 4) Seed the position file with the default fraction if it doesn't exist, so
 #    there's something to edit. Never overwrite an existing one: that would

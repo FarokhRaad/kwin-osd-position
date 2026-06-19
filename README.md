@@ -152,6 +152,31 @@ qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.showText \
   "audio-volume-high" "osd position"
 ```
 
+### Faster rebuilds (ccache)
+
+KWin is hundreds of C++ files, so a from-scratch compile is the slow part of
+every rebuild. `build.sh` uses [ccache](https://ccache.dev/) to avoid repeating
+that work: it installs ccache if missing and routes the compiler through it by
+prepending `/usr/lib/ccache/bin` to `PATH` — **no change to your
+`/etc/makepkg.conf`** (it's enabled per-build only).
+
+- **First build:** unchanged in speed — the cache starts empty.
+- **Re-patching the same `kwin` version** (e.g. changing the default fraction):
+  near-instant — only `placement.cpp` recompiles and relinks.
+- **Re-patching after a `kwin` upgrade:** the script sets `CCACHE_BASEDIR` to the
+  extracted source root so the version in the path is stripped before hashing.
+  Files that didn't change between the two releases stay cached, so only the
+  handful that actually changed recompile.
+
+The script prints the cache hit rate after each build. To opt out:
+
+```bash
+USE_CCACHE=0 ./build.sh
+```
+
+Tunables (all optional): `CCACHE_DIR` (default `~/.cache/ccache`) and
+`CCACHE_MAXSIZE` (default `10G`).
+
 ---
 
 ## Moving the OSD afterwards (no rebuild)
