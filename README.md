@@ -187,8 +187,14 @@ Modelled on
 approach. Install once:
 
 ```bash
-./tools/install-autorun.sh        # adds a ~/.config/autostart entry
+./tools/install-autorun.sh        # copies runtime files on-system + adds autostart
 ```
+
+This **copies the runtime files** (`build.sh` + `tools/`) into
+`~/.local/share/osd-position-kde` and points the autostart entry at that copy, so
+the autorun keeps working no matter where you cloned the repo — even if the clone
+lives on a removable or late-mounted partition that isn't present at login.
+Re-running is idempotent (it just refreshes the installed copy).
 
 At each login it checks whether the installed `libkwin` still carries our patch
 (it greps the baked-in `kwin-osd-position` path marker out of the library). If a
@@ -215,7 +221,7 @@ patches an *effect plugin* it can hot-reload via D-Bus in the same session.
 ## Removing / reverting
 
 ```bash
-./tools/install-autorun.sh --remove   # remove the autostart entry
+./tools/install-autorun.sh --remove   # remove autostart entry + installed copy
 sudo pacman -S extra/kwin             # reinstall stock kwin
 rm -f ~/.config/kwin-osd-position     # optional: drop the position file
 ```
@@ -249,7 +255,7 @@ selection are left as upstream wrote them.
 ```
 build.sh                              # fetch + patch + build + install kwin; seeds the position file
 tools/
-  install-autorun.sh                  # install/remove the login-time patch-check autorun
+  install-autorun.sh                  # copies runtime files on-system + install/remove autorun
   osd-position-autorun.sh             # the autorun: detects an upgrade wiped the patch, offers rebuild
   osd-position-autorun.desktop        # autostart entry template (Exec path filled in on install)
 ```
